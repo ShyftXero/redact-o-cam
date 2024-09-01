@@ -60,12 +60,3 @@ Replace `path/to/your/disguise.png` with whatever image you want to hide behind.
 
 This tool is for entertainment purposes only. We are not responsible for:
 - Accidental identity reveals
-- Uncontrollable laughter from coworkers
-- Existential crises about the nature of reality and identity
-- The sudden urge to wear a tinfoil hat
-
-## 🎩 Final Thoughts
-
-Remember, in a world of constant surveillance, the best defense is a good offense. Or in this case, a ridiculously fun face redaction tool. Stay safe, stay sane, and may your digital face always be as mysterious as the ingredients in a hot dog!
-
-**P.S.** If you're reading this, you're probably on a list somewhere. But hey, at least you're in good company! 👋
