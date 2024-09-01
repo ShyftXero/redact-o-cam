@@ -1,18 +1,15 @@
 # 👁️ REDACT-O-CAM 🕵️‍♂️
 
-## 🎭 What's This Madness?
-
-This little gem of code is your ticket to digital anonymity in a world that's about as private as a glass-walled public restroom. Whether you're dodging the fashion police, hiding from your ex, or just tired of AI trying to guess your age (and failing miserably), this tool has got you covered. Literally.
-
+replace your face with a png or gif and create a virtual video device so you can use it in teams or for a live stream or something. 
 ## 🚀 Features
 
-- **Face Redaction**: Turn your face into whatever you want! A cat, a potato, or that painting your aunt made that no one can quite figure out.
-- **GIF Support**: Because static images are so last century. Now your face can be a looping meme!
-- **Offset Adjustment**: For when you want your digital mask to be just a little bit off-center, like your sense of humor.
-- **Scaling**: Make your cover image bigger or smaller. Perfect for when you're feeling particularly big-headed or humble.
-- **Virtual Webcam Output**: Fool your video calls into thinking you're a respectable member of society.
-- **ASCII Art Mode**: For those who think life is better in text format.
-- **Matrix Mode**: Embrace your inner Neo and dodge those digital bullets!
+- **Face Redaction**:
+- **GIF Support**: 
+- **Offset Adjustment**:
+- **Scaling**: 
+- **Virtual Webcam Output**:
+- **ASCII Art Mode**: 
+- **Matrix Mode**: 
 
 ## 🛠️ Installation
 
