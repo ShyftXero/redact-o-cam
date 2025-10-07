@@ -19,17 +19,17 @@ console = Console()
 
 def load_image(path):
     try:
-        image = Image.open(path)
-        if image.format == 'GIF':
-            frames = []
-            for frame in ImageSequence.Iterator(image):
-                frame = frame.convert("RGBA")
-                frame = np.array(frame)
-                frames.append(frame)
-            return frames
-        else:
-            image = image.convert("RGBA")
-            return [np.array(image)]
+        with Image.open(path) as image:  # Use context manager to properly close file
+            if image.format == 'GIF':
+                frames = []
+                for frame in ImageSequence.Iterator(image):
+                    frame = frame.convert("RGBA")
+                    frame = np.array(frame)
+                    frames.append(frame)
+                return frames
+            else:
+                image = image.convert("RGBA")
+                return [np.array(image)]
     except FileNotFoundError:
         console.print(f"[bold red]Error:[/bold red] Image not found at {path}")
         sys.exit(1)
@@ -42,20 +42,36 @@ def overlay_image(background, overlay, x, y):
     background_height = background.shape[0]
     if x >= background_width or y >= background_height:
         return background
+    
+    # Handle negative offsets
+    overlay_x_start = 0
+    overlay_y_start = 0
+    bg_x_start = x
+    bg_y_start = y
+    
+    if x < 0:
+        overlay_x_start = -x
+        bg_x_start = 0
+    if y < 0:
+        overlay_y_start = -y
+        bg_y_start = 0
+    
     h, w = overlay.shape[0], overlay.shape[1]
-    if x + w > background_width:
-        w = background_width - x
-        overlay = overlay[:, :w]
-    if y + h > background_height:
-        h = background_height - y
-        overlay = overlay[:h]
     
-    overlay_image = overlay[..., :3]
-    mask = overlay[..., 3:] / 255.0
+    # Calculate actual overlay dimensions
+    overlay_w = min(w - overlay_x_start, background_width - bg_x_start)
+    overlay_h = min(h - overlay_y_start, background_height - bg_y_start)
     
-    roi = background[y:y+h, x:x+w]
+    if overlay_w <= 0 or overlay_h <= 0:
+        return background
+    
+    overlay_crop = overlay[overlay_y_start:overlay_y_start+overlay_h, overlay_x_start:overlay_x_start+overlay_w]
+    overlay_image = overlay_crop[..., :3]
+    mask = overlay_crop[..., 3:] / 255.0
+    
+    roi = background[bg_y_start:bg_y_start+overlay_h, bg_x_start:bg_x_start+overlay_w]
     blended = roi * (1.0 - mask) + overlay_image * mask
-    background[y:y+h, x:x+w] = blended.astype(np.uint8)
+    background[bg_y_start:bg_y_start+overlay_h, bg_x_start:bg_x_start+overlay_w] = blended.astype(np.uint8)
     return background
 
 def get_ansi_color(r, g, b):
@@ -161,15 +177,39 @@ def process_frame(frame, face_detector, image_frames, frame_index, debug, x_offs
 
     return frame, faces
 
-def frame_processing_thread(input_queue, output_queue, face_detector, image_frames, debug, x_offset, y_offset, scale):
+def frame_processing_thread(input_queue, output_queue, face_detector, image_frames, debug, x_offset, y_offset, scale, stop_event):
     frame_index = 0
-    while True:
-        frame = input_queue.get()
-        if frame is None:
-            break
-        processed_frame, faces = process_frame(frame, face_detector, image_frames, frame_index, debug, x_offset, y_offset, scale)
-        output_queue.put((processed_frame, faces))
-        frame_index = (frame_index + 1) % len(image_frames)
+    while not stop_event.is_set():
+        try:
+            frame = input_queue.get(timeout=0.1)
+            if frame is None:
+                break
+            processed_frame, faces = process_frame(frame, face_detector, image_frames, frame_index, debug, x_offset, y_offset, scale)
+            output_queue.put((processed_frame, faces))
+            frame_index = (frame_index + 1) % len(image_frames)
+        except queue.Empty:
+            continue
+
+def check_virtual_device(device_path):
+    """Check if virtual device exists and provide helpful error message"""
+    if not os.path.exists(device_path):
+        console.print(f"[bold yellow]Warning:[/bold yellow] Virtual device {device_path} does not exist")
+        console.print("\n[cyan]To create a virtual webcam device:[/cyan]")
+        console.print("1. Install v4l2loopback:")
+        console.print("   [green]sudo apt install v4l2loopback-dkms[/green]  # Debian/Ubuntu")
+        console.print("   [green]sudo dnf install v4l2loopback[/green]       # Fedora")
+        console.print("\n2. Load the kernel module:")
+        console.print(f"   [green]sudo modprobe v4l2loopback devices=1 video_nr=4 card_label='VirtualCam' exclusive_caps=1[/green]")
+        console.print("\n3. Make it persistent (optional):")
+        console.print("   [green]echo 'v4l2loopback' | sudo tee /etc/modules-load.d/v4l2loopback.conf[/green]")
+        console.print(f"   [green]echo 'options v4l2loopback devices=1 video_nr=4 card_label=\"VirtualCam\" exclusive_caps=1' | sudo tee /etc/modprobe.d/v4l2loopback.conf[/green]")
+        console.print("\n[cyan]Available video devices:[/cyan]")
+        for i in range(10):
+            dev = f"/dev/video{i}"
+            if os.path.exists(dev):
+                console.print(f"  ✓ {dev}")
+        return False
+    return True
 
 def main(
     img_path: str = typer.Option('matrix_face.gif', "--img", help="Path to the image (PNG or GIF) for face redaction"),
@@ -203,12 +243,17 @@ def main(
 
     fake_webcam = None
     if virtual_cam:
-        try:
-            fake_webcam = pyfakewebcam.FakeWebcam(virtual_cam_device, width, height)
-        except Exception as e:
-            console.print(f"[bold red]Error creating virtual webcam:[/bold red] {str(e)}")
-            console.print("Continuing without virtual webcam output.")
+        if not check_virtual_device(virtual_cam_device):
+            console.print("[yellow]Continuing without virtual webcam output.[/yellow]")
             virtual_cam = False
+        else:
+            try:
+                fake_webcam = pyfakewebcam.FakeWebcam(virtual_cam_device, width, height)
+                console.print(f"[green]✓ Virtual webcam initialized: {virtual_cam_device}[/green]")
+            except Exception as e:
+                console.print(f"[bold red]Error creating virtual webcam:[/bold red] {str(e)}")
+                console.print("[yellow]Continuing without virtual webcam output.[/yellow]")
+                virtual_cam = False
 
     ascii_file_handle = None
     if ascii_file:
@@ -222,12 +267,16 @@ def main(
 
     input_queue = queue.Queue(maxsize=5)
     output_queue = queue.Queue(maxsize=5)
+    stop_event = threading.Event()
 
     processing_thread = threading.Thread(
         target=frame_processing_thread,
-        args=(input_queue, output_queue, face_detector, image_frames, debug, x_offset, y_offset, scale)
+        args=(input_queue, output_queue, face_detector, image_frames, debug, x_offset, y_offset, scale, stop_event),
+        daemon=True
     )
     processing_thread.start()
+
+    console.print("[green]✓ Started. Press 'q' to quit[/green]")
 
     try:
         while True:
@@ -240,10 +289,13 @@ def main(
                     console.print("[bold yellow]Warning:[/bold yellow] Failed to capture frame")
                     break
 
-            input_queue.put(frame)
+            try:
+                input_queue.put(frame, timeout=0.1)
+            except queue.Full:
+                pass  # Skip frame if queue is full
 
-            if not output_queue.empty():
-                processed_frame, faces = output_queue.get()
+            try:
+                processed_frame, faces = output_queue.get_nowait()
 
                 if matrix_mode:
                     processed_frame = apply_matrix_effect(processed_frame, [(face.left(), face.top(), face.width(), face.height()) for face in faces])
@@ -263,19 +315,23 @@ def main(
                         ascii_file_handle.write(ascii_frame + '\n\n')
 
                 cv2.imshow('Face Redaction', processed_frame)
+            except queue.Empty:
+                pass  # No processed frame available yet
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
     except KeyboardInterrupt:
-        console.print("[bold green]Shutting down gracefully...[/bold green]")
+        console.print("\n[bold green]Shutting down gracefully...[/bold green]")
     finally:
+        stop_event.set()
         input_queue.put(None)  # Signal the processing thread to stop
-        processing_thread.join()
+        processing_thread.join(timeout=2)
         cap.release()
         cv2.destroyAllWindows()
         if ascii_file_handle:
             ascii_file_handle.close()
+        console.print("[green]✓ Cleanup complete[/green]")
 
 if __name__ == "__main__":
     typer.run(main)
